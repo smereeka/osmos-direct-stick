@@ -1,0 +1,46 @@
+
+name: Build Osmos Direct Stick
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    container:
+      image: devkitpro/devkita64:latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          dkp-pacman -Sy --noconfirm --needed switch-dev switch-mesa switch-libdrm_nouveau switch-zlib switch-libpng
+
+      - name: Download Osmos source
+        run: |
+          git clone --depth 1 https://github.com/ChanseyIsTheBest/osmos_nx.git upstream_osmos
+
+      - name: Apply controller changes
+        run: |
+          python3 scripts/test_patch.py
+          python3 scripts/apply_patch.py upstream_osmos
+
+      - name: Compile
+        run: |
+          . /opt/devkitpro/switchvars.sh
+          make -C upstream_osmos NOCHECK=1 -j2
+
+      - name: Upload NRO
+        uses: actions/upload-artifact@v4
+        with:
+          name: Osmos_Direct_Stick_TEST
+          path: upstream_osmos/osmos_nx.nro
+          if-no-files-found: error
