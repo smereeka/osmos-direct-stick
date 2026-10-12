@@ -1,0 +1,65 @@
+name: Build WookReader Russian for Nintendo Switch
+on:
+  push:
+    branches: [wookreader-ru-build]
+    paths:
+      - ".github/workflows/build_wookreader_ru.yml"
+      - "wookreader_ru/**"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    container:
+      image: devkitpro/devkita64:latest
+    steps:
+      - name: Checkout Russian patch
+        uses: actions/checkout@v4
+      - name: Install host dependencies
+        run: |
+          apt-get update
+          apt-get install -y libfreetype6-dev
+      - name: Clone original WookReader sources
+        run: |
+          git clone --depth 1 --recurse-submodules https://github.com/exorevan/WookReader.git wookreader-src
+      - name: Apply Russian translations and UTF-8 support
+        run: |
+          python3 wookreader_ru/apply_ru.py wookreader-src
+      - name: Build MuPDF and Switch executable
+        shell: bash
+        run: |
+          export DEVKITPRO=/opt/devkitpro
+          export DEVKITA64=$DEVKITPRO/devkitA64
+          export LIBNX=$DEVKITPRO/libnx
+          export PORTLIBS=$DEVKITPRO/portlibs/switch
+          export PATH=$DEVKITPRO/devkitA64/bin:$DEVKITPRO/tools/bin:$PATH
+          cd wookreader-src
+          export NODEBUG=true
+          make -f Makefile.mupdf -j2
+          make -j2
+          test -s WookReader.nro
+      - name: Create Atmosphere / Homebrew ZIP
+        shell: bash
+        run: |
+          mkdir -p output/switch/WookReader
+          cp wookreader-src/WookReader.nro output/switch/WookReader/WookReader.nro
+          echo "WookReader Russian. Copy the switch folder to SD card root via DBI." > output/README_RU.txt
+          python3 - <<'PY'
+          import zipfile
+          from pathlib import Path
+          out=Path("WookReader_RU_Atmosphere_TEST.zip")
+          with zipfile.ZipFile(out,"w",zipfile.ZIP_DEFLATED) as z:
+              for p in Path("output").rglob("*"):
+                  if p.is_file(): z.write(p,p.relative_to("output").as_posix())
+          print("ZIP ready:",out,out.stat().st_size)
+          PY
+      - name: Upload ready-to-copy WookReader RU
+        uses: actions/upload-artifact@v4
+        with:
+          name: WookReader_RU_Atmosphere_TEST
+          path: |
+            WookReader_RU_Atmosphere_TEST.zip
+            wookreader-src/WookReader.nro
+          if-no-files-found: error
