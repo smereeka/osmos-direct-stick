@@ -27,6 +27,18 @@ jobs:
       - name: Apply Russian translations and UTF-8 support
         run: |
           python3 wookreader_ru/apply_ru.py wookreader-src
+      - name: Identify translated build as 0.7.0-RU
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("wookreader-src/Makefile")
+          s = p.read_text(encoding="utf-8")
+          s = s.replace("VERSION_MINOR := 6", "VERSION_MINOR := 7")
+          s = s.replace("VERSION_MICRO := 7", "VERSION_MICRO := 0")
+          s = s.replace("APP_TITLE   := WookReader", "APP_TITLE   := WookReader RU")
+          s = s.replace("APP_VERSION := ${VERSION_MAJOR}.${VERSION_MINOR}.${VERSION_MICRO}-sigma", "APP_VERSION := 0.7.0-RU")
+          p.write_text(s, encoding="utf-8")
+          PY
       - name: Build MuPDF and Switch executable
         shell: bash
         run: |
@@ -45,7 +57,7 @@ jobs:
         run: |
           mkdir -p output/switch/WookReader
           cp wookreader-src/WookReader.nro output/switch/WookReader/WookReader.nro
-          echo "WookReader Russian. Copy the switch folder to SD card root via DBI." > output/README_RU.txt
+          echo "WookReader 0.7.0-RU. Скопируйте папку switch в корень SD-карты через DBI. Откройте приложение через Homebrew Menu." > output/README_RU.txt
           python3 - <<'PY'
           import zipfile
           from pathlib import Path
