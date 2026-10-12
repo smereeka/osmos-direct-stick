@@ -50,4 +50,27 @@ def main():
     if "Makefile.switch" in src:
         mf.write_text(src.replace("Makefile.switch","Makefile.mupdf"),encoding="utf-8")
     print(f"Russian strings: {translated}; theme colors: {len(COLOR_NAMES)}; SDL UTF-8: {utf8_renderer}/{utf8_size}.")
-if __name__=="__main__": main()
+
+def fix_upstream_compile_errors():
+    # WookReader upstream has the implementation but misses the declaration.
+    helper=ROOT/"include/helpers/SDL_helper.h"
+    h=helper.read_text(encoding="utf-8")
+    declaration=("void SDL_DrawTextWrapped(SDL_Renderer *renderer, TTF_Font *font, "
+                 "int x, int y, int wrapWidth, int maxH, SDL_Color colour, const char *text);")
+    marker="void SDL_DrawTextf("
+    if declaration not in h:
+        if marker not in h: raise RuntimeError("Cannot insert SDL_DrawTextWrapped declaration.")
+        h=h.replace(marker, declaration+"\n"+marker,1)
+        helper.write_text(h,encoding="utf-8")
+    # The settings are defined in main.cpp, but were not declared to other files.
+    conf=ROOT/"include/config.h"
+    c=conf.read_text(encoding="utf-8")
+    marker="extern bool configDarkMode;"
+    if c.count(marker)!=1: raise RuntimeError("Missing configDarkMode declaration.")
+    c=c.replace(marker, marker+"\nextern bool configScreenButtons;\nextern bool configStatusBar;",1)
+    conf.write_text(c,encoding="utf-8")
+    print("Applied upstream build fixes: SDL_DrawTextWrapped + config flags.")
+
+if __name__=="__main__":
+    main()
+    fix_upstream_compile_errors()
