@@ -330,6 +330,46 @@ c=once(c,
     if (!__atomic_load_n(&cl->job_ready, __ATOMIC_ACQUIRE)) {''',
 "worker result handshake")
 
+
+# Normalize comic filename extensions: .CBR/.CBZ/.PDF must be recognized too.
+c=once(c,
+'''    string ext;
+    if (filename.find('.') != string::npos)
+      ext = filename.substr(filename.find_last_of("."));
+    else
+      ext = is_dir ? "directory" : "none";''',
+'''    string ext = is_dir ? "directory" : entry.path().extension().string();
+    transform(ext.begin(), ext.end(), ext.begin(), ::tolower);''',
+"case-insensitive folder scan")
+c=once(c,
+'''        string extention;
+        if (filename.find('.') != string::npos)
+          extention = filename.substr(filename.find_last_of("."));
+        else {
+          std::error_code ec;
+          extention = fs::is_directory(sel, ec) ? "directory" : "none";
+        }''',
+'''        std::error_code ec;
+        string extention = fs::is_directory(sel, ec)
+            ? "directory" : sel.extension().string();
+        transform(extention.begin(), extention.end(),
+                  extention.begin(), ::tolower);''',
+"controller case-insensitive open")
+c=once(c,
+'''              string extention;
+              if (filename.find('.') != string::npos)
+                extention = filename.substr(filename.find_last_of("."));
+              else {
+                std::error_code ec;
+                extention = fs::is_directory(sel, ec) ? "directory" : "none";
+              }''',
+'''              std::error_code ec;
+              string extention = fs::is_directory(sel, ec)
+                  ? "directory" : sel.extension().string();
+              transform(extention.begin(), extention.end(),
+                        extention.begin(), ::tolower);''',
+"touch case-insensitive open")
+
 chooser.write_text(c,encoding="utf-8")
 pages.write_text(p,encoding="utf-8")
 print("Optimized: full RAR3 validation, verified page cache, demand covers, bounded LRU,")
