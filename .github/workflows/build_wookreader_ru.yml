@@ -59,16 +59,13 @@ jobs:
         run: |
           mkdir -p output/switch/WookReader
           cp wookreader-src/WookReader.nro output/switch/WookReader/WookReader.nro
-          cat > output/README_RU.txt <<'TXT'
-WookReader RU LibraryFix 0.7.0-RU2
-1. Copy switch/WookReader/WookReader.nro onto SD:/switch/WookReader/WookReader.nro using DBI.
-2. Do not erase books/, notes, saved_pages.cfg, options.cfg or older files.
-3. HOME screen icon: Install Sphaira (https://github.com/NaGaa95/sphaira/releases), launch via Homebrew Menu
-   in full memory mode, select WookReader RU, press X and choose Install Forwarder.
-4. Keep /switch/WookReader/WookReader.nro at this exact path: the forwarder launches it.
-5. Old .pagecache file lists are auto-invalidated and safely regenerated on first access.
-Status: compiled for Switch by GitHub Actions; not yet tested on a real console.
-TXT
+          printf '%s\n' \
+            'WookReader RU LibraryFix 0.7.0-RU2' \
+            'Copy folder switch to SD root via DBI; preserve books and settings.' \
+            'To make a HOME icon: in Sphaira select WookReader, press X, Install Forwarder.' \
+            'Sphaira: https://github.com/NaGaa95/sphaira/releases' \
+            'On first launch the old broken page caches will be rebuilt automatically.' \
+            'Compiled for Switch; real console test pending.' > output/README_RU.txt
           python3 - <<'PY'
           import zipfile
           from pathlib import Path
