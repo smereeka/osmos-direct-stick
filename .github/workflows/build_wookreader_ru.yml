@@ -1,7 +1,7 @@
-name: Build WookReader Russian for Nintendo Switch
+name: Build WookReader Russian (Large Library Fix)
 on:
   push:
-    branches: [wookreader-ru-build]
+    branches: [wookreader-ru-library-fix]
     paths:
       - ".github/workflows/build_wookreader_ru.yml"
       - "wookreader_ru/**"
@@ -27,6 +27,8 @@ jobs:
       - name: Apply Russian translations and UTF-8 support
         run: |
           python3 wookreader_ru/apply_ru.py wookreader-src
+          python3 wookreader_ru/optimize.py wookreader-src
+          python3 -m py_compile wookreader_ru/optimize.py
       - name: Identify translated build as 0.7.0-RU
         run: |
           python3 - <<'PY'
@@ -36,7 +38,7 @@ jobs:
           s = s.replace("VERSION_MINOR := 6", "VERSION_MINOR := 7")
           s = s.replace("VERSION_MICRO := 7", "VERSION_MICRO := 0")
           s = s.replace("APP_TITLE   := WookReader", "APP_TITLE   := WookReader RU")
-          s = s.replace("APP_VERSION := ${VERSION_MAJOR}.${VERSION_MINOR}.${VERSION_MICRO}-sigma", "APP_VERSION := 0.7.0-RU")
+          s = s.replace("APP_VERSION := ${VERSION_MAJOR}.${VERSION_MINOR}.${VERSION_MICRO}-sigma", "APP_VERSION := 0.7.0-RU2")
           p.write_text(s, encoding="utf-8")
           PY
       - name: Build MuPDF and Switch executable
@@ -57,11 +59,20 @@ jobs:
         run: |
           mkdir -p output/switch/WookReader
           cp wookreader-src/WookReader.nro output/switch/WookReader/WookReader.nro
-          echo "WookReader 0.7.0-RU. Скопируйте папку switch в корень SD-карты через DBI. Откройте приложение через Homebrew Menu." > output/README_RU.txt
+          cat > output/README_RU.txt <<'TXT'
+WookReader RU LibraryFix 0.7.0-RU2
+1. Copy switch/WookReader/WookReader.nro onto SD:/switch/WookReader/WookReader.nro using DBI.
+2. Do not erase books/, notes, saved_pages.cfg, options.cfg or older files.
+3. HOME screen icon: Install Sphaira (https://github.com/NaGaa95/sphaira/releases), launch via Homebrew Menu
+   in full memory mode, select WookReader RU, press X and choose Install Forwarder.
+4. Keep /switch/WookReader/WookReader.nro at this exact path: the forwarder launches it.
+5. Old .pagecache file lists are auto-invalidated and safely regenerated on first access.
+Status: compiled for Switch by GitHub Actions; not yet tested on a real console.
+TXT
           python3 - <<'PY'
           import zipfile
           from pathlib import Path
-          out=Path("WookReader_RU_Atmosphere_TEST.zip")
+          out=Path("WookReader_RU_LibraryFix_TEST.zip")
           with zipfile.ZipFile(out,"w",zipfile.ZIP_DEFLATED) as z:
               for p in Path("output").rglob("*"):
                   if p.is_file(): z.write(p,p.relative_to("output").as_posix())
@@ -70,7 +81,7 @@ jobs:
       - name: Upload ready-to-copy WookReader RU
         uses: actions/upload-artifact@v4
         with:
-          name: WookReader_RU_Atmosphere_TEST
+          name: WookReader_RU_LibraryFix_TEST
           path: |
             WookReader_RU_Atmosphere_TEST.zip
             wookreader-src/WookReader.nro
