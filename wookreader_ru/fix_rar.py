@@ -158,6 +158,23 @@ enumerate_code = once(enumerate_code,
     return true;''', "reject partial enumeration on decoder error")
 p = p[:start] + enumerate_code + p[end:]
 
+# Thread creation/start can fail under memory pressure. The synchronous path
+# must use the same RAR backend as background enumeration.
+p = once(p,
+    '''    // Fallback: synchronous enumeration if thread creation fails
+    if (!enumerate_images(path, _page_names))
+        return;''',
+    '''    // Fallback: the same RAR decoder even when enumeration cannot start a thread.
+    if (wookrar::is_archive(path)) {
+        auto result = wookrar::list_images(path, _page_names);
+        if (!result.ok()) {
+            Log_Error("RAR list (sync): " + wookrar::describe(result) + " path=" + path);
+            return;
+        }
+    } else if (!enumerate_images(path, _page_names)) {
+        return;
+    }''', "synchronous RAR enumeration")
+
 # Cover extraction uses the same serialized decoder, including when the first
 # alphabetical image is physically a later member of a solid archive.
 start = c.index("static string find_cover_in_rar3(")
@@ -205,10 +222,16 @@ mf = once(mf, "EXTRA_LIBS := $(TOPDIR)/lib/libmupdf.a",
           "EXTRA_LIBS := $(TOPDIR)/lib/libmupdf.a $(TOPDIR)/lib/libunrar.a",
           "static UnRAR linkage")
 
+reader = root / "source/menus/book/BookReader.cpp"
+r = reader.read_text(encoding="utf-8")
+r = once(r, "BookReader: opening as comic ZIP: ",
+         "BookReader: opening as comic archive: ", "accurate archive log label")
+
 pages.write_text(p, encoding="utf-8")
 chooser.write_text(c, encoding="utf-8")
 main.write_text(m, encoding="utf-8")
 makefile.write_text(mf, encoding="utf-8")
+reader.write_text(r, encoding="utf-8")
 for name in ("WookRAR.hpp", "WookRAR.cpp"):
     shutil.copyfile(here / name, root / "source/menus/book" / name)
 print("RARFIX1: shared UnRAR decoder for page names, page data and covers; real decoder errors retained.")

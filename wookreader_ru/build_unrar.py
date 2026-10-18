@@ -136,6 +136,26 @@ def patch_portability(source: Path) -> list[str]:
         "#if _POSIX_C_SOURCE >= 200809L || defined(__APPLE__) && defined(__arm64__)",
         "#if !defined(__SWITCH__) && (_POSIX_C_SOURCE >= 200809L || defined(__APPLE__) && defined(__arm64__))",
     )
+    # devkitA64 publishes GCC's byte-order macros, not the Linux/BSD aliases
+    # used by UnRAR's generic Unix detection. Select the actual compiler ABI;
+    # never infer endianness merely from an ARM/AArch64 architecture name.
+    replace_exact(
+        source / "os.hpp",
+        "#if !defined(LITTLE_ENDIAN) && !defined(BIG_ENDIAN)",
+        """#if defined(__SWITCH__)
+  #undef LITTLE_ENDIAN
+  #undef BIG_ENDIAN
+  #if defined(__BYTE_ORDER__) && defined(__ORDER_LITTLE_ENDIAN__) && __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+    #define LITTLE_ENDIAN
+  #elif defined(__BYTE_ORDER__) && defined(__ORDER_BIG_ENDIAN__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+    #define BIG_ENDIAN
+  #else
+    #error "UnRAR Switch build requires compiler byte-order macros"
+  #endif
+#endif
+
+#if !defined(LITTLE_ENDIAN) && !defined(BIG_ENDIAN)""",
+    )
     # SD paths and WookReader's internal strings are UTF-8.  Do not depend on
     # a process-global locale or the C locale's byte-preserving fallback.
     replace_exact(
@@ -152,7 +172,8 @@ def patch_portability(source: Path) -> list[str]:
     for name in ("os.hpp", "unicode.cpp"):
         path = source / name
         path.write_text(license_comment + path.read_text(encoding="utf-8"), encoding="utf-8")
-    return ["switch-software-cpu-detection", "switch-stat-time-portability", "switch-utf8-paths"]
+    return ["switch-software-cpu-detection", "switch-stat-time-portability",
+            "switch-compiler-endianness", "switch-utf8-paths"]
 
 
 def run(command: list[str], **kwargs) -> subprocess.CompletedProcess:
@@ -209,8 +230,24 @@ def main() -> None:
             return output
 
         print(f"Building UnRAR {PUBLIC_VERSION} ({mode}, {len(SOURCE_UNITS)} units, {args.jobs} jobs)", flush=True)
+        objects = []
+        errors = []
         with concurrent.futures.ThreadPoolExecutor(max_workers=args.jobs) as pool:
-            objects = list(pool.map(compile_one, SOURCE_UNITS))
+            # Gather every translation unit's result. A failure in the first
+            # header must not hide unrelated newlib portability diagnostics.
+            futures = [(name, pool.submit(compile_one, name)) for name in SOURCE_UNITS]
+            for name, future in futures:
+                try:
+                    objects.append(future.result())
+                except (RuntimeError, OSError) as error:
+                    errors.append(f"{name}.cpp:\n{error}")
+        error_log = target / "unrar-compile-errors.txt"
+        if errors:
+            diagnostics = "\n\n".join(errors) + "\n"
+            error_log.write_text(diagnostics, encoding="utf-8")
+            print(diagnostics, flush=True)
+            raise RuntimeError(f"{len(errors)}/{len(SOURCE_UNITS)} UnRAR units failed; full log: {error_log}")
+        error_log.unlink(missing_ok=True)
         library = build / "libunrar.a"
         # GNU ar D removes timestamps/UID/GID from the static archive index.
         run([ar, "rcsD", str(library), *map(str, objects)])

@@ -201,6 +201,8 @@ struct Session {
     unsigned flags = 0;
     ~Session() { if (handle) RARCloseArchive(handle); }
     Result open(const char *path, unsigned mode, CallbackState &state) {
+        if (!path || !*path)
+            return failure(Error::io, ERAR_EOPEN, "empty archive path");
         std::wstring wide_path;
         if (!to_wide(path, wide_path))
             return failure(Error::unsupported, 0, "archive path is not UTF-8");
@@ -211,6 +213,10 @@ struct Session {
         options.UserData = reinterpret_cast<LPARAM>(&state);
         handle = RAROpenArchiveEx(&options);
         flags = options.Flags;
+        if (cancelled(state.cancel))
+            return failure(Error::cancelled, options.OpenResult, "cancelled while opening archive");
+        if (state.interaction)
+            return failure(Error::unsupported, options.OpenResult, "password, volume or dictionary request while opening archive");
         if (!handle || options.OpenResult != ERAR_SUCCESS)
             return rar_failure(options.OpenResult, "open archive");
         if (flags & (ROADF_VOLUME | ROADF_ENCHEADERS))
