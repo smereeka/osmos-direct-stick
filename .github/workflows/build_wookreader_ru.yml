@@ -60,6 +60,10 @@ jobs:
               source = source.replace(old, new, 1)
           p.write_text(source, encoding="utf-8")
           PY
+      - name: Build and test the exact RAR backend on host
+        run: |
+          python3 wookreader_ru/build_unrar.py wookreader-host --host
+          python3 wookreader_ru/tests/test_rar_backend.py --unrar-prefix wookreader-host --report output/backend-tests.json
       - name: Build pinned UnRAR for Switch
         shell: bash
         run: |
@@ -140,6 +144,10 @@ jobs:
           nro = output / "switch/WookReader/WookReader.nro"
           def capture(*args):
               return subprocess.check_output(args, text=True).strip()
+          tests_path = output / "backend-tests.json"
+          tests = json.loads(tests_path.read_text(encoding="utf-8"))
+          assert tests["ok"]
+          assert tests["backend_source_sha256"] == hashlib.sha256(Path("wookreader-src/source/menus/book/WookRAR.cpp").read_bytes()).hexdigest()
           provenance = {
               "version": version,
               "patch_repository": "https://github.com/" + os.environ["GITHUB_REPOSITORY"],
@@ -152,6 +160,8 @@ jobs:
               "nro_path_on_sd": "/switch/WookReader/WookReader.nro",
               "nro_size": nro.stat().st_size,
               "nro_sha256": hashlib.sha256(nro.read_bytes()).hexdigest(),
+              "host_regression_report": "backend-tests.json",
+              "host_regression_report_sha256": hashlib.sha256(tests_path.read_bytes()).hexdigest(),
               "validated": ["NRO header and asset bounds", "NACP title and version", "original icon bytes", "Russian UI literals"],
               "tested_on_nintendo_switch": False,
           }

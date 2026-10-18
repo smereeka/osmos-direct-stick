@@ -1,0 +1,324 @@
+{
+  "schema_version": 1,
+  "description": "Original synthetic PNG/text fixtures; no user data or external artwork.",
+  "license": "CC0-1.0 for the synthetic fixture content and archives.",
+  "creator": {
+    "version": "RAR 6.24 (3 Oct 2023)",
+    "download_url": "https://www.rarlab.com/rar/rarlinux-x64-624.tar.gz",
+    "archive_sha256": "88e22a8e84125c947637bbf28c746e338a0a63279d80f9f9d7373603875db1eb",
+    "executable_sha256": "71ab9088d575e438d243672fcc6d36d2f9a39f5a8d4d26e998129cea12dbf682",
+    "redistributed": false
+  },
+  "physical_entry_order": [
+    "Комикс/010_обложка.png",
+    "notes/readme.txt",
+    "Комикс/002_середина.PNG",
+    "notes/metadata.json",
+    "Комикс/nested/003_middle.png",
+    "Комикс/001_начало.png"
+  ],
+  "page_names_sorted": [
+    "Комикс/001_начало.png",
+    "Комикс/002_середина.PNG",
+    "Комикс/010_обложка.png",
+    "Комикс/nested/003_middle.png"
+  ],
+  "images_per_archive": 4,
+  "expected_files": [
+    {
+      "name": "Комикс/010_обложка.png",
+      "size": 2396,
+      "sha256": "cfa4bd778778f134ca0864c74b596af4001b6d07d788077afa428d29e67f2b0f",
+      "crc32": "ec631f79",
+      "is_image": true
+    },
+    {
+      "name": "notes/readme.txt",
+      "size": 2496,
+      "sha256": "5bdfba060ed80f56e4329fed869cf78338720d46fb86ce35bcc44afb742ca6bf",
+      "crc32": "e5e230a9",
+      "is_image": false
+    },
+    {
+      "name": "Комикс/002_середина.PNG",
+      "size": 2396,
+      "sha256": "360516b8fa377ff05d0385b122dfb1e406c2012ad5c7a0c8c58384d914db0886",
+      "crc32": "795d8159",
+      "is_image": true
+    },
+    {
+      "name": "notes/metadata.json",
+      "size": 45,
+      "sha256": "c8dc18d4623e70c2380197a68e4562953dacd5e7934d9eca6d7b91480d54a9bc",
+      "crc32": "9cc96633",
+      "is_image": false
+    },
+    {
+      "name": "Комикс/nested/003_middle.png",
+      "size": 2396,
+      "sha256": "2c1445ddd5e486b889268fe2774416ad6f6ea8562d2aa63879ab48f72424674e",
+      "crc32": "e436c49c",
+      "is_image": true
+    },
+    {
+      "name": "Комикс/001_начало.png",
+      "size": 2396,
+      "sha256": "b9e07bb10ea0f8ba1798b73c80cb950fb36e7fa960aea514eed0498eb4d436c4",
+      "crc32": "04a7aa51",
+      "is_image": true
+    }
+  ],
+  "fixtures": [
+    {
+      "name": "rar4_nonsolid.cbr",
+      "format": "RAR4",
+      "solid": false,
+      "size": 7495,
+      "sha256": "c52a0594ff9f40ac4c1f001db375ac906b245e7b442bdf12b785764b54eb0822",
+      "generation_command": [
+        "rar",
+        "a",
+        "-cfg-",
+        "-ma4",
+        "-m5",
+        "-md1m",
+        "-s-",
+        "-ds",
+        "-mt1",
+        "-ts-",
+        "-qo-",
+        "-idq",
+        "rar4_nonsolid.cbr",
+        "Комикс/010_обложка.png",
+        "notes/readme.txt",
+        "Комикс/002_середина.PNG",
+        "notes/metadata.json",
+        "Комикс/nested/003_middle.png",
+        "Комикс/001_начало.png"
+      ],
+      "physical_order_verified": true,
+      "creator_integrity_test_ok": true,
+      "rar4_file_headers": [
+        {
+          "name": "Комикс/010_обложка.png",
+          "header_offset": 20,
+          "header_size": 97,
+          "data_crc32_offset": 36,
+          "packed_offset": 117,
+          "packed_size": 710,
+          "solid_file_flag": false
+        },
+        {
+          "name": "notes/readme.txt",
+          "header_offset": 827,
+          "header_size": 48,
+          "data_crc32_offset": 843,
+          "packed_offset": 875,
+          "packed_size": 66,
+          "solid_file_flag": false
+        },
+        {
+          "name": "Комикс/002_середина.PNG",
+          "header_offset": 941,
+          "header_size": 100,
+          "data_crc32_offset": 957,
+          "packed_offset": 1041,
+          "packed_size": 2051,
+          "solid_file_flag": false
+        },
+        {
+          "name": "notes/metadata.json",
+          "header_offset": 3092,
+          "header_size": 51,
+          "data_crc32_offset": 3108,
+          "packed_offset": 3143,
+          "packed_size": 45,
+          "solid_file_flag": false
+        },
+        {
+          "name": "Комикс/nested/003_middle.png",
+          "header_offset": 3188,
+          "header_size": 103,
+          "data_crc32_offset": 3204,
+          "packed_offset": 3291,
+          "packed_size": 2050,
+          "solid_file_flag": false
+        },
+        {
+          "name": "Комикс/001_начало.png",
+          "header_offset": 5341,
+          "header_size": 94,
+          "data_crc32_offset": 5357,
+          "packed_offset": 5435,
+          "packed_size": 2053,
+          "solid_file_flag": false
+        }
+      ]
+    },
+    {
+      "name": "rar4_solid.cbr",
+      "format": "RAR4",
+      "solid": true,
+      "size": 2497,
+      "sha256": "1a1197e7f06d6703b94674aa3d33ea70c13ff7c37cfcd3862cf98d2c85f0d5b6",
+      "generation_command": [
+        "rar",
+        "a",
+        "-cfg-",
+        "-ma4",
+        "-m5",
+        "-md1m",
+        "-s",
+        "-ds",
+        "-mt1",
+        "-ts-",
+        "-qo-",
+        "-idq",
+        "rar4_solid.cbr",
+        "Комикс/010_обложка.png",
+        "notes/readme.txt",
+        "Комикс/002_середина.PNG",
+        "notes/metadata.json",
+        "Комикс/nested/003_middle.png",
+        "Комикс/001_начало.png"
+      ],
+      "physical_order_verified": true,
+      "creator_integrity_test_ok": true,
+      "rar4_file_headers": [
+        {
+          "name": "Комикс/010_обложка.png",
+          "header_offset": 20,
+          "header_size": 97,
+          "data_crc32_offset": 36,
+          "packed_offset": 117,
+          "packed_size": 726,
+          "solid_file_flag": false
+        },
+        {
+          "name": "notes/readme.txt",
+          "header_offset": 843,
+          "header_size": 48,
+          "data_crc32_offset": 859,
+          "packed_offset": 891,
+          "packed_size": 38,
+          "solid_file_flag": true
+        },
+        {
+          "name": "Комикс/002_середина.PNG",
+          "header_offset": 929,
+          "header_size": 100,
+          "data_crc32_offset": 945,
+          "packed_offset": 1029,
+          "packed_size": 499,
+          "solid_file_flag": true
+        },
+        {
+          "name": "notes/metadata.json",
+          "header_offset": 1528,
+          "header_size": 51,
+          "data_crc32_offset": 1544,
+          "packed_offset": 1579,
+          "packed_size": 25,
+          "solid_file_flag": true
+        },
+        {
+          "name": "Комикс/nested/003_middle.png",
+          "header_offset": 1604,
+          "header_size": 103,
+          "data_crc32_offset": 1620,
+          "packed_offset": 1707,
+          "packed_size": 347,
+          "solid_file_flag": true
+        },
+        {
+          "name": "Комикс/001_начало.png",
+          "header_offset": 2054,
+          "header_size": 94,
+          "data_crc32_offset": 2070,
+          "packed_offset": 2148,
+          "packed_size": 342,
+          "solid_file_flag": true
+        }
+      ]
+    },
+    {
+      "name": "rar5_nonsolid.cbr",
+      "format": "RAR5",
+      "solid": false,
+      "size": 6967,
+      "sha256": "56afda16b46b74287bc7d952b11cbc12c847b91567867b2ad54eb4fe49cf53a7",
+      "generation_command": [
+        "rar",
+        "a",
+        "-cfg-",
+        "-ma5",
+        "-m5",
+        "-md1m",
+        "-s-",
+        "-ds",
+        "-mt1",
+        "-ts-",
+        "-qo-",
+        "-idq",
+        "rar5_nonsolid.cbr",
+        "Комикс/010_обложка.png",
+        "notes/readme.txt",
+        "Комикс/002_середина.PNG",
+        "notes/metadata.json",
+        "Комикс/nested/003_middle.png",
+        "Комикс/001_начало.png"
+      ],
+      "physical_order_verified": true,
+      "creator_integrity_test_ok": true
+    },
+    {
+      "name": "rar5_solid.cbr",
+      "format": "RAR5",
+      "solid": true,
+      "size": 956,
+      "sha256": "0981921f42504b7f787536ee7394b6f98781dbd493047f31006bd7774ef4c31b",
+      "generation_command": [
+        "rar",
+        "a",
+        "-cfg-",
+        "-ma5",
+        "-m5",
+        "-md1m",
+        "-s",
+        "-ds",
+        "-mt1",
+        "-ts-",
+        "-qo-",
+        "-idq",
+        "rar5_solid.cbr",
+        "Комикс/010_обложка.png",
+        "notes/readme.txt",
+        "Комикс/002_середина.PNG",
+        "notes/metadata.json",
+        "Комикс/nested/003_middle.png",
+        "Комикс/001_начало.png"
+      ],
+      "physical_order_verified": true,
+      "creator_integrity_test_ok": true
+    }
+  ],
+  "runtime_negative_cases": {
+    "source_fixture": "rar4_solid.cbr",
+    "crc_mutation": "XOR the little-endian data CRC32 with 1, then recompute the header CRC16 as CRC32(header[2:]) & 0xffff. Compressed data remains unchanged; integrity verification must fail.",
+    "bad_target_crc": {
+      "mutate_entry": "Комикс/002_середина.PNG",
+      "extract_entry": "Комикс/002_середина.PNG"
+    },
+    "bad_nonimage_predecessor_crc": {
+      "mutate_entry": "notes/readme.txt",
+      "extract_entry": "Комикс/002_середина.PNG"
+    },
+    "truncated_last_member": {
+      "truncate_to_bytes": 2319,
+      "extract_entry": "Комикс/001_начало.png"
+    },
+    "missing_member": {
+      "extract_entry": "Комикс/missing-page.png"
+    }
+  }
+}

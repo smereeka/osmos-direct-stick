@@ -161,6 +161,23 @@ p = p[:start] + enumerate_code + p[end:]
 # Thread creation/start can fail under memory pressure. The synchronous path
 # must use the same RAR backend as background enumeration.
 p = once(p,
+    '''    if (threadCreate(&_enum_thread, enum_thread_entry, this, nullptr, 0x40000, 0x30, 2) == 0 &&
+        threadStart(&_enum_thread) == 0)
+    {
+        _enumerating = true;
+        // _valid stays false until finish_enumeration() is called from BookReader::draw()
+        return;
+    }''',
+    '''    if (threadCreate(&_enum_thread, enum_thread_entry, this, nullptr, 0x40000, 0x30, 2) == 0)
+    {
+        if (threadStart(&_enum_thread) == 0) {
+            _enumerating = true;
+            // _valid stays false until finish_enumeration() is called from BookReader::draw()
+            return;
+        }
+        threadClose(&_enum_thread);
+    }''', "close enumeration thread if start fails")
+p = once(p,
     '''    // Fallback: synchronous enumeration if thread creation fails
     if (!enumerate_images(path, _page_names))
         return;''',

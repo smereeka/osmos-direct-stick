@@ -156,11 +156,11 @@ def patch_portability(source: Path) -> list[str]:
 
 #if !defined(LITTLE_ENDIAN) && !defined(BIG_ENDIAN)""",
     )
-    # SD paths and WookReader's internal strings are UTF-8.  Do not depend on
-    # a process-global locale or the C locale's byte-preserving fallback.
+    # SD paths and WookReader's internal strings are UTF-8. Use this same
+    # conversion in host regressions and on Switch, independent of locale.
     replace_exact(
         source / "unicode.cpp", "#elif defined(_APPLE)",
-        "#elif defined(_APPLE) || defined(__SWITCH__)", count=2,
+        "#elif defined(_APPLE) || defined(WOOK_UNRAR_UTF8)", count=2,
     )
 
     license_text = (source / "license.txt").read_text(encoding="utf-8")
@@ -173,7 +173,7 @@ def patch_portability(source: Path) -> list[str]:
         path = source / name
         path.write_text(license_comment + path.read_text(encoding="utf-8"), encoding="utf-8")
     return ["switch-software-cpu-detection", "switch-stat-time-portability",
-            "switch-compiler-endianness", "switch-utf8-paths"]
+            "switch-compiler-endianness", "wookreader-utf8-paths"]
 
 
 def run(command: list[str], **kwargs) -> subprocess.CompletedProcess:
@@ -203,7 +203,8 @@ def main() -> None:
     work.mkdir(exist_ok=True)
     archive = obtain_archive(work, args.archive)
     flags = ["-O2", "-std=c++11", "-fexceptions", "-ffunction-sections", "-fdata-sections",
-             "-D_FILE_OFFSET_BITS=64", "-D_LARGEFILE_SOURCE", "-DRARDLL", "-URAR_SMP"]
+             "-D_FILE_OFFSET_BITS=64", "-D_LARGEFILE_SOURCE", "-DRARDLL", "-URAR_SMP",
+             "-DWOOK_UNRAR_UTF8"]
     if args.host:
         cxx = args.cxx or "c++"
         ar = args.ar or "ar"
@@ -213,7 +214,11 @@ def main() -> None:
         devkita64 = Path(os.environ.get("DEVKITA64", str(devkitpro / "devkitA64")))
         cxx = args.cxx or str(devkita64 / "bin/aarch64-none-elf-g++")
         ar = args.ar or str(devkita64 / "bin/aarch64-none-elf-ar")
-        flags += ["-D__SWITCH__", "-march=armv8-a+crc+crypto", "-mtune=cortex-a57",
+        # Strict -std=c++11 hides POSIX declarations in newlib unless requested.
+        # Expose the real ftruncate/fileno/symlink/lchown APIs before considering
+        # any platform feature exclusions; do not provide replacement libc stubs.
+        flags += ["-D__SWITCH__", "-D_POSIX_C_SOURCE=200809L", "-D_DEFAULT_SOURCE",
+                  "-march=armv8-a+crc+crypto", "-mtune=cortex-a57",
                   "-mtp=soft", "-fPIE", "-I" + str(devkitpro / "libnx/include")]
     compiler_version = run([cxx, "--version"]).stdout.splitlines()[0]
 
