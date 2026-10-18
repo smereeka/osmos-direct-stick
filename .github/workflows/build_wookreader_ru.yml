@@ -20,7 +20,7 @@ jobs:
       - name: Install host dependencies
         run: |
           apt-get update
-          apt-get install -y libfreetype6-dev
+          apt-get install -y libfreetype6-dev curl unzip
       - name: Clone original WookReader sources
         run: |
           git clone --depth 1 --recurse-submodules https://github.com/exorevan/WookReader.git wookreader-src
@@ -59,13 +59,21 @@ jobs:
         run: |
           mkdir -p output/switch/WookReader
           cp wookreader-src/WookReader.nro output/switch/WookReader/WookReader.nro
-          printf '%s\n' \
-            'WookReader RU LibraryFix 0.7.0-RU2' \
-            'Copy folder switch to SD root via DBI; preserve books and settings.' \
-            'To make a HOME icon: in Sphaira select WookReader, press X, Install Forwarder.' \
-            'Sphaira: https://github.com/NaGaa95/sphaira/releases' \
-            'On first launch the old broken page caches will be rebuilt automatically.' \
-            'Compiled for Switch; real console test pending.' > output/README_RU.txt
+          python3 - <<'PY'
+          from pathlib import Path
+          Path("output/README_RU.txt").write_text(
+              "WOOKREADER RU 0.7.0-RU2 — УЛУЧШЕННАЯ ВЕРСИЯ\n\n"
+              "1. Скопируйте папку switch из ZIP в корень SD через DBI.\n"
+              "2. Сохраните свои books/, заметки, saved_pages.cfg и options.cfg.\n"
+              "3. Старые списки страниц автоматически обновятся при первом открытии.\n"
+              "4. Для иконки HOME откройте Sphaira из Homebrew Menu в полном режиме (удерживать R при запуске игры).\n"
+              "5. Выберите WookReader RU, нажмите X и выберите Install Forwarder.\n"
+              "6. На HOME появится отдельная иконка; NRO должен оставаться по пути /switch/WookReader/WookReader.nro.\n"
+              "Если Sphaira нет, скачайте: https://github.com/NaGaa95/sphaira/releases/tag/1.0.8\n\n"
+              "Тест компиляции пройден; работа на настоящей Switch подлежит подтверждению.\n",
+              encoding="utf-8"
+          )
+          PY
           python3 - <<'PY'
           import zipfile
           from pathlib import Path
@@ -75,11 +83,36 @@ jobs:
                   if p.is_file(): z.write(p,p.relative_to("output").as_posix())
           print("ZIP ready:",out,out.stat().st_size)
           PY
-      - name: Upload ready-to-copy WookReader RU
+      - name: Bundle official Sphaira 1.0.8 (HOME Menu shortcut tool)
+        shell: bash
+        run: |
+          mkdir -p /tmp/sphaira_package output/switch
+          if curl -fLsS --retry 3 -o /tmp/sphaira.zip https://github.com/NaGaa95/sphaira/releases/download/1.0.8/sphaira.zip; then
+            unzip -q /tmp/sphaira.zip -d /tmp/sphaira_package
+            SFILE="$(find /tmp/sphaira_package -type f -name sphaira.nro -print -quit)"
+            if [ -n "$SFILE" ]; then
+              cp "$SFILE" output/switch/sphaira.nro
+              echo "Bundled official Sphaira at switch/sphaira.nro"
+            else
+              echo "No sphaira.nro found in official archive"
+            fi
+          else
+            echo "Sphaira unavailable; see official download in README"
+          fi
+      - name: Validate Switch NRO binary
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          nro=Path("output/switch/WookReader/WookReader.nro")
+          assert nro.stat().st_size > 1000000
+          with nro.open("rb") as f:
+              f.seek(16)
+              assert f.read(4) == b"NRO0"
+          print("Valid WookReader NRO",nro.stat().st_size)
+          PY
+      - name: Upload ready-to-copy package
         uses: actions/upload-artifact@v4
         with:
-          name: WookReader_RU_LibraryFix_TEST
-          path: |
-            WookReader_RU_Atmosphere_TEST.zip
-            wookreader-src/WookReader.nro
+          name: WookReader_RU2_Switch_READY
+          path: output/
           if-no-files-found: error
