@@ -1,0 +1,78 @@
+name: Build WOOK HOME installer
+on:
+  push:
+    branches: [wook-home-icon-installer]
+    paths:
+      - 'wook_installer/**'
+      - '.github/workflows/build_wook_installer.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: wook-home-installer
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    container:
+      image: devkitpro/devkita64:latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch pinned installer sources
+        shell: bash
+        run: |
+          git clone https://github.com/Amir-Ehsani/HomeTile-switch.git hometile-src
+          git -C hometile-src checkout 19c429496501e6565489f2790461b794f562f613
+          sed -i 's@https://github.com/ITotalJustice/sphaira.git@https://github.com/NaGaa95/sphaira.git@g' hometile-src/native/scripts/vendor_native_forwarder.sh
+          bash hometile-src/native/scripts/vendor_native_forwarder.sh
+      - name: Specialize installer for WOOK
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('wook_installer/prepare_installer.py')
+          s=p.read_text(encoding='utf-8')
+          s=s.replace('path + path', 'nro_path + nro_path')
+          p.write_text(s,encoding='utf-8')
+          PY
+          python3 -m py_compile wook_installer/prepare_installer.py
+          python3 wook_installer/prepare_installer.py hometile-src
+      - name: Build Nintendo Switch installer
+        shell: bash
+        run: |
+          export DEVKITPRO=/opt/devkitpro
+          . /opt/devkitpro/switchvars.sh
+          make -C hometile-src/native -j2
+          test -s hometile-src/native/WOOK_Installer.nro
+      - name: Collect binary and corresponding source
+        run: |
+          mkdir -p output/source
+          cp hometile-src/native/WOOK_Installer.nro output/WOOK_Installer_Skeleton.nro
+          cp hometile-src/native/source/main.cpp output/source/main.cpp
+          cp hometile-src/native/include/hometile_owo.hpp output/source/hometile_owo.hpp
+          cp hometile-src/native/vendor/owo.cpp output/source/owo.cpp
+          cp hometile-src/native/Makefile output/source/Makefile
+          cp hometile-src/LICENSE output/source/HomeTile_LICENSE.txt
+          cp hometile-src/native/third_party/SPHAIRA_LICENSE output/source/Sphaira_LICENSE.txt
+          cp wook_installer/prepare_installer.py output/source/prepare_installer.py
+          python3 - <<'PY'
+          import json,hashlib,struct
+          from pathlib import Path
+          p=Path('output/WOOK_Installer_Skeleton.nro')
+          b=p.read_bytes();assert b[16:20]==b'NRO0'
+          n=struct.unpack_from('<I',b,24)[0]
+          assert b[n:n+4]==b'ASET'
+          assert b'WOOK_PAYLOAD' not in b or b'WOOK' in b
+          report={'build':'WOOK HOME Installer','type':'NRO template; private icon and payload added after download',
+            'homeTile_commit':'19c429496501e6565489f2790461b794f562f613',
+            'sphaira_commit':'0370e47f7fac0e426675624f363fe50f3b442048',
+            'forwarder_tag':'0.0.8','binary_sha256':hashlib.sha256(b).hexdigest(),
+            'binary_size':len(b),'console_test':'pending'}
+          Path('output/build_report.json').write_text(json.dumps(report,indent=2))
+          print(json.dumps(report,indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: WOOK_Installer_BUILD
+          path: output/
+          if-no-files-found: error
