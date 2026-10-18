@@ -1,0 +1,125 @@
+name: WOOK RU3 archive compatibility tests and Switch build
+on:
+  push:
+    branches: [wook-rar-reader-fix]
+    paths:
+      - wookreader_ru/**
+      - .github/workflows/build_wook_rarfix.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    container:
+      image: devkitpro/devkita64:latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install host test dependencies
+        run: |
+          apt-get update -qq
+          apt-get install -y libfreetype6-dev libarchive-dev libarchive-tools zlib1g-dev g++ python3 git
+      - name: Fetch pinned source versions
+        run: |
+          git clone --depth 1 https://github.com/exorevan/WookReader.git wookreader-src
+          git -C wookreader-src checkout 9266efb05fe64af7205007f9e3260b2eb9ab0a3e
+          git -C wookreader-src submodule update --init --recursive
+          git clone --depth 1 https://github.com/selmf/unarr.git unarr-src
+          git -C unarr-src checkout 9c8e898bb3dc2ee9d368b0e945d5bb453e15c187
+          git clone --depth 1 https://github.com/markokr/rarfile.git rarfile-tests
+      - name: Compile the same archive backend for host tests
+        run: |
+          python3 wookreader_ru/build_unarr.py unarr-src host-unarr host
+          g++ -std=c++17 -O2 -pthread -Iunarr-src -Iwookreader_ru wookreader_ru/archive_backend.cpp wookreader_ru/test_archives.cpp host-unarr/libwookunarr.a -larchive -lz -o archive-test
+      - name: Verify all entries in 70 mixed archives including solid RAR
+        run: |
+          python3 wookreader_ru/run_archive_tests.py
+      - name: Apply RU2 fixes and the new archive reader
+        run: |
+          python3 wookreader_ru/apply_ru.py wookreader-src
+          python3 wookreader_ru/optimize.py wookreader-src
+          python3 wookreader_ru/apply_archive_fix.py wookreader-src
+      - name: Build the pinned RAR decoder for Switch
+        run: |
+          python3 wookreader_ru/build_unarr.py unarr-src switch-unarr switch
+          mkdir -p wookreader-src/lib
+          cp switch-unarr/libwookunarr.a wookreader-src/lib/
+          cp unarr-src/unarr.h wookreader-src/include/
+      - name: Compile WOOK RU3
+        shell: bash
+        run: |
+          export DEVKITPRO=/opt/devkitpro
+          export DEVKITA64=$DEVKITPRO/devkitA64
+          export LIBNX=$DEVKITPRO/libnx
+          export PORTLIBS=$DEVKITPRO/portlibs/switch
+          export PATH=$DEVKITPRO/devkitA64/bin:$DEVKITPRO/tools/bin:$PATH
+          export NODEBUG=true
+          cd wookreader-src
+          make -f Makefile.mupdf -j2 > ../mupdf-build.log 2>&1 || { tail -100 ../mupdf-build.log; exit 1; }
+          make -j2
+      - name: Validate and package the update without touching existing HOME icon
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib,json,shutil,struct,zipfile
+          data=Path('wookreader-src/WookReader.nro').read_bytes()
+          assert data[16:20]==b'NRO0'
+          assert b'0.7.0-RU3' in data
+          assert b'unarr/RAR4' in data
+          assert b'#WR3 ' in data
+          out=Path('output'); app=out/'switch/WookReader'
+          app.mkdir(parents=True,exist_ok=True)
+          (app/'WookReader.nro').write_bytes(data)
+          qa=json.loads(Path('ARCHIVE_QA.json').read_text())
+          qa.update(nro_sha256=hashlib.sha256(data).hexdigest(),nro_bytes=len(data),version='0.7.0-RU3',switch_cross_compile=True)
+          (out/'QA_REPORT.json').write_text(json.dumps(qa,ensure_ascii=False,indent=2),encoding='utf-8')
+          (out/'README_RU.txt').write_text(
+            'WOOK 0.7.0-RU3 — обновление чтения архивов\n\n'
+            '1. Полностью закройте WOOK.\n'
+            '2. Через DBI скопируйте папку switch в корень SD с заменой WookReader.nro.\n'
+            '   Итоговый путь: SD:/switch/WookReader/WookReader.nro\n'
+            '3. Откройте WOOK существующей иконкой HOME. Установщик и ярлык менять не нужно.\n'
+            '4. Книги, saved_pages.cfg, options.cfg и заметки не удаляйте.\n\n'
+            'Что изменено: отдельный декодер unarr для RAR3/RAR4, включая solid;\n'
+            'проверка полного чтения страниц; информативные ошибки; новый индекс WR3;\n'
+            'ограничение памяти обложек по байтам и освобождение перед открытием книги.\n'
+            'Существующая иконка HOME остаётся без изменения.\n'
+            'Новый индекс строится автоматически при первом открытии каждого комикса.\n\n'
+            'QA: чтение 70 тестовых архивов и контрольные суммы; отдельная сборка для Switch.\n'
+            'Эта версия пока не запускалась на физической Switch и не проверена на пользовательских CBR.\n',encoding='utf-8')
+          shutil.copy2('unarr-src/COPYING',out/'LICENSE_unarr.txt')
+          (out/'SOURCE_INFO.txt').write_text(
+            'WOOK RU3 modifications and reproducible workflow:\nhttps://github.com/smereeka/osmos-direct-stick/tree/wook-rar-reader-fix/wookreader_ru\n'
+            'WookReader: exorevan/WookReader @ 9266efb05fe64af7205007f9e3260b2eb9ab0a3e\n'
+            'unarr: selmf/unarr @ 9c8e898bb3dc2ee9d368b0e945d5bb453e15c187 (LGPLv3)\n',encoding='utf-8')
+          # Source patch and linkable WookReader objects allow replacing the LGPL decoder.
+          with zipfile.ZipFile('WOOK_RU3_Source_Relink.zip','w',zipfile.ZIP_DEFLATED) as z:
+            for p in Path('wookreader_ru').glob('*'):
+              if p.is_file(): z.write(p,str(p))
+            for p in Path('wookreader-src/build').glob('*.o'): z.write(p,'objects/'+p.name)
+            z.write('wookreader-src/Makefile','Makefile')
+            z.write('.github/workflows/build_wook_rarfix.yml','build_wook_rarfix.yml')
+          print(json.dumps(qa,ensure_ascii=False,indent=2))
+          PY
+      - name: Upload ready-to-copy update
+        uses: actions/upload-artifact@v4
+        with:
+          name: WOOK_RU3_ArchiveFix_Update
+          path: output/
+          if-no-files-found: error
+      - name: Upload corresponding modifications and relink objects
+        uses: actions/upload-artifact@v4
+        with:
+          name: WOOK_RU3_Source_Relink
+          path: WOOK_RU3_Source_Relink.zip
+      - name: Preserve diagnostic test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: WOOK_RU3_Test_Logs
+          path: |
+            ARCHIVE_QA.json
+            archive_test_stderr.txt
+            archive_test_stdout.tsv
+          if-no-files-found: ignore
