@@ -1,20 +1,23 @@
 #!/usr/bin/env python3
 from pathlib import Path
-import json, shutil, struct, subprocess, sys, zipfile, zlib
-
-sys.path.insert(0,str(Path('rarfile-tests').resolve()))
-import rarfile
+import json,re,shutil,struct,subprocess,zipfile,zlib
 root=Path('archive-test-cases')
 if root.exists(): shutil.rmtree(root)
 root.mkdir()
 refdir=Path('rarfile-tests/test/files')
-samples=[refdir/'rar3-solid.rar', refdir/'rar5-solid.rar']
+samples=[refdir/'rar3-solid.rar',refdir/'rar5-solid.rar']
 for p in samples: assert p.is_file(),p
 
-def normal(s):
-    s=s.replace('\\','/')
-    while s.startswith('./'): s=s[2:]
-    return s
+def fixture_expected(p):
+    text=Path(str(p)+'.exp').read_text()
+    result={}
+    for part in re.split(r'(?m)^(?:R5_)?FILE:',text)[1:]:
+        name=re.search(r'(?m)^  name=(.+)$',part).group(1)
+        size=int(re.search(r'\bdec=(\d+)',part).group(1))
+        crc=int(re.search(r'\bcrc=0x([0-9a-fA-F]+)',part).group(1),16)
+        result[name]=(size,crc)
+    assert len(result)==2,(p,result)
+    return result
 
 def png(page):
     w=h=16
@@ -40,10 +43,8 @@ for number in range(1,71):
         sample=samples[0 if number%3==1 else 1]
         name=f'{number:03}_Sample.CBR'
         shutil.copy2(sample,root/name)
-        with rarfile.RarFile(sample) as ar:
-            expected[name]={normal(i.filename):(i.file_size,i.CRC) for i in ar.infolist() if not i.isdir()}
+        expected[name]=fixture_expected(sample)
         counts['RAR4_solid' if number%3==1 else 'RAR5_solid']+=1
-
 run=subprocess.run(['./archive-test',str(root)],capture_output=True,text=True,timeout=120)
 Path('archive_test_stdout.tsv').write_text(run.stdout,encoding='utf-8')
 Path('archive_test_stderr.txt').write_text(run.stderr,encoding='utf-8')
@@ -54,19 +55,16 @@ seen=set()
 for row in run.stdout.splitlines():
     archive,name,size,crc=row.split('\t')
     result=(int(size),int(crc))
-    assert result==tuple(expected[archive][name]), (archive,name,result,expected[archive][name])
+    assert result==tuple(expected[archive][name]),(archive,name,result,expected[archive][name])
     seen.add((archive,name))
 expected_count=sum(map(len,expected.values()))
 assert len(seen)==expected_count,(len(seen),expected_count)
 assert len(expected)==70
-
-# The legacy decoder demonstration uses a genuine upstream solid-RAR fixture.
 old=subprocess.run(['bsdtar','-xOf',str(samples[0]),'stest2.txt'],capture_output=True)
-# A deliberately truncated archive must fail, not report a valid partial book.
 bad=Path('archive-test-invalid'); bad.mkdir(exist_ok=True)
 (bad/'truncated.cbr').write_bytes(samples[0].read_bytes()[:45])
 reject=subprocess.run(['./archive-test',str(bad)],capture_output=True,text=True,timeout=20)
-assert reject.returncode!=0, 'Truncated archive falsely accepted'
+assert reject.returncode!=0,'Truncated archive falsely accepted'
 qa={
  'archives_tested':70,'formats':counts,'entries_crc_verified':expected_count,
  'reverse_navigation':True,'concurrent_first_last_reads':True,
@@ -75,8 +73,7 @@ qa={
  'legacy_solid_decoder_exit_code':old.returncode,
  'legacy_solid_decoder_error':old.stderr.decode('utf-8','replace').strip(),
  'test_result':run.stderr.strip().splitlines()[-1],
- 'user_comics_tested':False,
- 'physical_switch_tested':False,
+ 'user_comics_tested':False,'physical_switch_tested':False,
  'scope':'Portable archive backend on Linux; Switch binary separately cross-compiled.'
 }
 Path('ARCHIVE_QA.json').write_text(json.dumps(qa,ensure_ascii=False,indent=2),encoding='utf-8')
