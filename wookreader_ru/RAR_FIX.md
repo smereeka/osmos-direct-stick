@@ -1,6 +1,6 @@
 # WookReader RU2: RAR extraction repair
 
-Build identity: `0.7.0-RU2-rar1`.
+Build identity: `0.7.0-RU2-rar2`.
 
 ## Confirmed failure and scope
 
@@ -43,10 +43,34 @@ library-size limit or certify execution on physical Nintendo Switch hardware.
 - RAR header names are refreshed through UnRAR instead of trusting old RAR page
   lists. Libarchive traversal failures retain the actual decoder error.
 
-The reader bounds one compressed image's output to 64 MiB and a RAR dictionary
-to 64 MiB. Multipart archives, password-protected headers/members and redirected
+The reader bounds one returned image file to 64 MiB and rejects a declared RAR
+dictionary above 64 MiB. This is not a total process-memory limit: decoder
+models, decoded image pixels, textures and caches use additional memory.
+Multipart archives, password-protected headers/members and redirected
 entries receive explicit errors. It keeps one requested image output buffer;
 it does not unpack an entire comic onto the SD card.
+
+## Runtime recheck in RARFIX2
+
+The additional review found separate application error paths. These are not
+presented as causes of the original second-page solid RAR4 failure.
+
+- Ignore the Y spread/layout toggle until the comic's initial page is ready.
+  RAR enumeration can publish a progress count before publishing the name
+  vector; the former input path could index that still-empty vector.
+- Release the unused initial compressed image buffer once enumeration has
+  joined, rather than retaining a second copy until the book closes.
+- Track successfully started cover workers. Failed creation/start never leads
+  to dispatch, waiting or closing an invalid thread handle.
+- Serialize the whole shared log-stream operation across page/cover workers.
+  A concurrent reproduction of the previous logger lost or damaged records.
+- Convert allocation exceptions inside UnRAR's header API into its documented
+  memory-error result, matching the existing open/process API boundaries.
+
+Focused regressions exercise these failure paths in addition to the original
+archive suite. The thread and logger harnesses use the applied application
+function bodies with host adapters for the platform primitives. They do not
+claim to execute Horizon or the NRO itself.
 
 ## Build and regression checks
 
@@ -82,6 +106,6 @@ and location remain the same, so an existing WOOK forwarder targeting this path
 continues to locate it. Russian UI/UTF-8 rendering and the original icon asset
 are retained. Books, notes, saved pages and user settings stay in place.
 
-The new log starts with `WOOK RU2 RARFIX1` and reports `RAR backend=UnRAR` for
+The new log starts with `WOOK RU2 RARFIX2` and reports `RAR backend=UnRAR` for
 RAR books. Verify the affected book's second, last and previous pages on the
 console; a physical-console test remains separate from host and build checks.

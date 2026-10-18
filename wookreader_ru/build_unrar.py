@@ -232,19 +232,53 @@ def patch_portability(source: Path) -> list[str]:
         "    umask(mask);\n  }\n#endif\n\n  switch(FileHead.HSType)",
     )
 
+    # Open and ProcessFile already translate allocation exceptions to the DLL
+    # error code, but ReadHeaderEx catches only RAR_EXIT upstream. A failed
+    # header vector/string allocation must not escape into the reader's
+    # -fno-exceptions translation units. Keep the same public API semantics.
+    replace_exact(
+        source / "dll.cpp",
+        """  catch (RAR_EXIT ErrCode)
+  {
+    return Data->Cmd.DllError!=0 ? Data->Cmd.DllError : RarErrorToDll(ErrCode);
+  }
+  return Data->Cmd.DllError!=0 ? Data->Cmd.DllError : RarErrorToDll(ErrHandler.GetErrorCode());
+}
+
+
+int PASCAL ProcessFile(""",
+        """  catch (std::bad_alloc&)
+  {
+    return ERAR_NO_MEMORY;
+  }
+  catch (std::length_error&)
+  {
+    return ERAR_NO_MEMORY;
+  }
+  catch (RAR_EXIT ErrCode)
+  {
+    return Data->Cmd.DllError!=0 ? Data->Cmd.DllError : RarErrorToDll(ErrCode);
+  }
+  return Data->Cmd.DllError!=0 ? Data->Cmd.DllError : RarErrorToDll(ErrHandler.GetErrorCode());
+}
+
+
+int PASCAL ProcessFile(""",
+    )
+
     license_text = (source / "license.txt").read_text(encoding="utf-8")
     paragraph = license_text.split("   2. ", 1)[1].split("   3. ", 1)[0].rstrip()
     license_comment = (
         "/* WookReader: platform integration adaptations only.\n"
         + paragraph + "\n*/\n"
     )
-    for name in ("os.hpp", "unicode.cpp", "extinfo.cpp", "file.cpp", "arcread.cpp"):
+    for name in ("os.hpp", "unicode.cpp", "extinfo.cpp", "file.cpp", "arcread.cpp", "dll.cpp"):
         path = source / name
         path.write_text(license_comment + path.read_text(encoding="utf-8"), encoding="utf-8")
     return ["switch-software-cpu-detection", "switch-stat-time-portability",
             "switch-compiler-endianness", "wookreader-utf8-paths",
             "switch-owner-restore-unsupported", "switch-exclusive-update-unsupported",
-            "switch-deterministic-attribute-mask"]
+            "switch-deterministic-attribute-mask", "dll-header-memory-errors"]
 
 
 def run(command: list[str], **kwargs) -> subprocess.CompletedProcess:

@@ -192,6 +192,31 @@ p = once(p,
         return;
     }''', "synchronous RAR enumeration")
 
+# Listing publishes a progress count before it publishes the completed name
+# vector. Y must not try to index that vector while the archive is opening.
+p = once(p, "void CBZPageLayout::toggle_spread()\n{",
+         "void CBZPageLayout::toggle_spread()\n{\n"
+         "    if (!_valid) return;\n", "defer spread input until page is ready")
+
+# The enum thread publishes the first compressed image immediately before its
+# done flag. Usually draw() observes done and never consumes the early-image
+# buffer; release it after the join instead of retaining it until book close.
+p = once(p,
+    '''    threadClose(&_enum_thread);
+    _enumerating = false;
+
+    if (_page_names.empty())''',
+    '''    threadClose(&_enum_thread);
+    _enumerating = false;
+    if (_first_image_raw) {
+        SDL_free(_first_image_raw);
+        _first_image_raw = nullptr;
+    }
+    _first_image_size = 0;
+    __atomic_store_n(&_first_image_ready, 0, __ATOMIC_RELEASE);
+
+    if (_page_names.empty())''', "release unused early image after enum joins")
+
 # Cover extraction uses the same serialized decoder, including when the first
 # alphabetical image is physically a later member of a solid archive.
 start = c.index("static string find_cover_in_rar3(")
@@ -226,11 +251,64 @@ c = once(c,
     } else {
       // ZIP/TAR/7z retain their existing libarchive backend.''', "cover extraction dispatch")
 
+# Never start or join an uncreated cover thread, or wait for a thread whose
+# start failed. Remaining workers (or the book icon) provide a safe fallback.
+c = once(c, "  Thread       thread;",
+         "  Thread       thread = {};\n  bool         active = false;",
+         "initialize cover thread state")
+c = once(c,
+    '''    threadCreate(&cl[w].thread, cover_loader_worker, &cl[w],
+                 nullptr, 512 * 1024, 0x2C, cover_cores[w]);
+    threadStart(&cl[w].thread);''',
+    '''    Result rc = threadCreate(&cl[w].thread, cover_loader_worker, &cl[w],
+                             nullptr, 512 * 1024, 0x2C, cover_cores[w]);
+    if (R_SUCCEEDED(rc)) {
+      rc = threadStart(&cl[w].thread);
+      if (R_SUCCEEDED(rc)) {
+        cl[w].active = true;
+      } else {
+        threadClose(&cl[w].thread);
+        Log_Error("cover worker: threadStart failed slot=" + std::to_string(w) +
+                  " rc=" + std::to_string(rc));
+      }
+    } else {
+      Log_Error("cover worker: threadCreate failed slot=" + std::to_string(w) +
+                " rc=" + std::to_string(rc));
+    }''', "handle cover worker startup failure")
+c = once(c, "    if (cl_in_flight[w] >= 0) continue;",
+         "    if (!cl[w].active || cl_in_flight[w] >= 0) continue;",
+         "dispatch cover jobs only to active workers")
+c = once(c,
+    '''    threadWaitForExit(&cl[w].thread);
+    threadClose(&cl[w].thread);
+    if (cl[w].result_pixels)''',
+    '''    if (!cl[w].active) continue;
+    threadWaitForExit(&cl[w].thread);
+    threadClose(&cl[w].thread);
+    cl[w].active = false;
+    if (cl[w].result_pixels)''', "join only started cover workers")
+
 main = root / "source/main.cpp"
 m = main.read_text(encoding="utf-8")
+# Page, prefetch and cover workers share this stream. Protect the entire
+# stream operation (including flush/close), not just individual message parts.
+m = once(m, "std::ofstream logFile;", '''std::ofstream logFile;
+namespace {
+Mutex wook_log_mutex = 0;
+struct WookLogGuard {
+  WookLogGuard() { mutexLock(&wook_log_mutex); }
+  ~WookLogGuard() { mutexUnlock(&wook_log_mutex); }
+  WookLogGuard(const WookLogGuard&) = delete;
+  WookLogGuard& operator=(const WookLogGuard&) = delete;
+};
+}''', "serialize shared log stream")
+for declaration in ("void Log_Init()", "void Log_Write(const std::string& msg)",
+                    "void Log_Error(const std::string& msg)", "void Log_Close()"):
+    m = once(m, declaration + " {", declaration + " {\n  WookLogGuard guard;",
+             "guard " + declaration)
 m = once(m, '  Log_Write("Initialize Services");',
          '  Log_Write("Initialize Services");\n'
-         '  Log_Write("WOOK RU2 RARFIX1: serialized UnRAR backend; CRC-checked solid extraction");',
+         '  Log_Write("WOOK RU2 RARFIX2: serialized UnRAR backend; CRC-checked solid extraction");',
          "build identification log")
 
 makefile = root / "Makefile"
@@ -243,6 +321,12 @@ reader = root / "source/menus/book/BookReader.cpp"
 r = reader.read_text(encoding="utf-8")
 r = once(r, "BookReader: opening as comic ZIP: ",
          "BookReader: opening as comic archive: ", "accurate archive log label")
+r = once(r,
+    '''    if (layout) static_cast<CBZPageLayout*>(layout)->toggle_spread();
+    _nav_landscape = !_nav_landscape;''',
+    '''    if (!layout || !static_cast<CBZPageLayout*>(layout)->is_valid()) return;
+    static_cast<CBZPageLayout*>(layout)->toggle_spread();
+    _nav_landscape = !_nav_landscape;''', "keep navigation mode until page is ready")
 
 pages.write_text(p, encoding="utf-8")
 chooser.write_text(c, encoding="utf-8")
@@ -251,4 +335,4 @@ makefile.write_text(mf, encoding="utf-8")
 reader.write_text(r, encoding="utf-8")
 for name in ("WookRAR.hpp", "WookRAR.cpp"):
     shutil.copyfile(here / name, root / "source/menus/book" / name)
-print("RARFIX1: shared UnRAR decoder for page names, page data and covers; real decoder errors retained.")
+print("RARFIX2: shared UnRAR decoder; guarded startup, worker lifecycle and log writes; real decoder errors retained.")
