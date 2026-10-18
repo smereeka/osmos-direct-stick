@@ -1,4 +1,4 @@
-name: Build WookReader Russian (RAR Fix)
+name: Build WookReader Russian (RU3)
 on:
   push:
     branches: [wookreader-ru-library-fix]
@@ -9,7 +9,7 @@ on:
 permissions:
   contents: read
 env:
-  WOOK_VERSION: 0.7.0-RU2-rar2
+  WOOK_VERSION: 0.8.0-RU3
   WOOK_UPSTREAM_SHA: 9266efb05fe64af7205007f9e3260b2eb9ab0a3e
   WOOK_BUILD_IMAGE: devkitpro/devkita64@sha256:1fc388c3a0d34bd2045a6dadcb1020e069d5f876a187fd705de14b4440c00282
 jobs:
@@ -24,7 +24,7 @@ jobs:
       - name: Install host dependencies
         run: |
           apt-get update
-          apt-get install -y libfreetype6-dev curl unzip g++
+          apt-get install -y libfreetype6-dev libconfig-dev pkg-config cmake binutils curl unzip g++
       - name: Clone pinned original WookReader sources
         shell: bash
         run: |
@@ -34,12 +34,19 @@ jobs:
           git -C wookreader-src checkout --detach FETCH_HEAD
           git -C wookreader-src submodule update --init --recursive --depth 1
           test "$(git -C wookreader-src rev-parse HEAD)" = "$WOOK_UPSTREAM_SHA"
-      - name: Apply Russian UI, library fixes and RAR reader
+      - name: Apply Russian UI, archive fixes, collections and power saving
         run: |
-          python3 -m py_compile wookreader_ru/apply_ru.py wookreader_ru/optimize.py wookreader_ru/fix_rar.py wookreader_ru/build_unrar.py
+          python3 -m py_compile wookreader_ru/*.py wookreader_ru/tests/*.py
           python3 wookreader_ru/apply_ru.py wookreader-src
           python3 wookreader_ru/optimize.py wookreader-src
           python3 wookreader_ru/fix_rar.py wookreader-src
+          python3 wookreader_ru/fix_covers.py wookreader-src
+          python3 wookreader_ru/install_state.py wookreader-src
+          python3 wookreader_ru/enhance_reader.py wookreader-src
+          python3 wookreader_ru/enhance_library.py wookreader-src
+          mkdir -p wookreader-ui-test/source/menus/book-chooser
+          cp wookreader-src/source/menus/book-chooser/MenuChooser.cpp wookreader-ui-test/source/menus/book-chooser/MenuChooser.cpp
+          python3 wookreader_ru/enhance_power.py wookreader-src
       - name: Identify translated RAR fix build
         run: |
           python3 - <<'PY'
@@ -50,7 +57,7 @@ jobs:
           p = Path("wookreader-src/Makefile")
           source = p.read_text(encoding="utf-8")
           replacements = {
-              "VERSION_MINOR := 6": "VERSION_MINOR := 7",
+              "VERSION_MINOR := 6": "VERSION_MINOR := 8",
               "VERSION_MICRO := 7": "VERSION_MICRO := 0",
               "APP_TITLE   := WookReader": "APP_TITLE   := WookReader RU",
               "APP_VERSION := ${VERSION_MAJOR}.${VERSION_MINOR}.${VERSION_MICRO}-sigma": "APP_VERSION := " + version,
@@ -66,10 +73,19 @@ jobs:
           python3 wookreader_ru/build_unrar.py wookreader-host --host
           python3 wookreader_ru/tests/test_rar_backend.py --unrar-prefix wookreader-host --report output/backend-tests.json
           python3 wookreader_ru/tests/test_header_oom.py wookreader-host | tee output/header-oom-tests.txt
+      - name: Test isolated JPEG libraries and persistent UTF-8 library
+        shell: bash
+        run: |
+          export PKG_CONFIG_LIBDIR=/usr/lib/x86_64-linux-gnu/pkgconfig:/usr/lib/pkgconfig:/usr/share/pkgconfig
+          unset PKG_CONFIG_PATH PKG_CONFIG_SYSROOT_DIR
+          python3 wookreader_ru/tests/test_jpeg_isolation.py wookreader-src --report output/jpeg-tests.json
+          python3 wookreader_ru/tests/test_library_state.py --report output/library-tests.json
       - name: Test reader startup, cover workers and shared logging
         shell: bash
         run: |
           python3 wookreader_ru/tests/test_reader_startup.py wookreader-src | tee output/startup-tests.txt
+          python3 wookreader_ru/tests/test_reader_view.py | tee output/reader-view-tests.txt
+          python3 wookreader_ru/tests/test_power.py wookreader-src --report output/power-tests.json
           python3 wookreader_ru/tests/test_logging.py --source-tree wookreader-src --report output/logging-tests.json
       - name: Build pinned UnRAR for Switch
         shell: bash
@@ -91,7 +107,10 @@ jobs:
           cd wookreader-src
           export NODEBUG=true
           make -f Makefile.mupdf -j2
+          python3 ../wookreader_ru/isolate_jpeg.py . --tool-prefix "$DEVKITA64/bin/aarch64-none-elf-"
           make -j2
+          python3 ../wookreader_ru/isolate_jpeg.py . --tool-prefix "$DEVKITA64/bin/aarch64-none-elf-" --verify-elf WookReader.elf
+          cp jpeg-isolation.json ../output/jpeg-isolation.json
           test -s WookReader.nro
       - name: Validate NRO, Russian UI and unchanged icon
         run: |
@@ -111,16 +130,32 @@ jobs:
           nacp = data[asset_start + nacp_offset:asset_start + nacp_offset + nacp_size]
           assert nacp[:0x200].split(b"\0", 1)[0] == b"WookReader RU", "Unexpected NACP title"
           assert nacp[0x3060:0x3070].split(b"\0", 1)[0].decode() == os.environ["WOOK_VERSION"], "Unexpected NACP version"
-          for literal in ["Папка пуста", "Изменить заметку", "Ошибка загрузки страницы."]:
+          for literal in ["Здесь пока нет комиксов.", "Коллекции и серии", "Изменить заметку", "Ошибка чтения"]:
               assert literal.encode("utf-8") in data, "Russian UI literal missing: " + literal
           assert b"WOOK RU2 RARFIX2:" in data, "RARFIX2 build marker is missing"
+          assert b"WOOK RU2 COVERFIX1:" in data, "JPEG cover-fix marker is missing"
+          assert b"WOOK RU3:" in data, "RU3 build marker is missing"
           print("NRO validated:", len(data), "bytes; Russian UI, original icon and version", os.environ["WOOK_VERSION"])
           PY
+      - name: Replay actual library UI with native SDL after target build
+        shell: bash
+        run: |
+          # Install native SDL only after the Switch executable is complete,
+          # so its sdl2-config cannot affect target compiler/linker selection.
+          apt-get update
+          apt-get install -y libsdl2-dev libsdl2-ttf-dev
+          export PKG_CONFIG_LIBDIR=/usr/lib/x86_64-linux-gnu/pkgconfig:/usr/lib/pkgconfig:/usr/share/pkgconfig
+          unset PKG_CONFIG_PATH PKG_CONFIG_SYSROOT_DIR
+          python3 wookreader_ru/tests/test_library_ui.py \
+            --source wookreader-ui-test \
+            --font wookreader-src/romfs/resources/font/Roboto-Light.ttf \
+            --report output/library-ui-tests.json
       - name: Package replacement NRO with checksum and provenance
         shell: bash
         run: |
           mkdir -p output/switch/WookReader
           cp wookreader-src/WookReader.nro output/switch/WookReader/WookReader.nro
+          cp wookreader_ru/INSTALL_UA.txt output/INSTALL_UA.txt
           python3 - <<'PY'
           import hashlib
           import json
@@ -130,7 +165,7 @@ jobs:
           version = os.environ["WOOK_VERSION"]
           output = Path("output")
           output.joinpath("README_RU.txt").write_text(
-              "WOOKREADER RU " + version + " — ОБНОВЛЁННОЕ ЧТЕНИЕ RAR/CBR\n\n"
+              "WOOKREADER RU " + version + " — СБОРНИКИ, ОБЛОЖКИ И ЭКОНОМИЯ БАТАРЕИ\n\n"
               "УСТАНОВКА С СОХРАНЕНИЕМ ВАШЕЙ ИКОНКИ WOOK\n"
               "1. Полностью закройте WOOK. Сохраните резервную копию прежнего WookReader.nro.\n"
               "2. Замените только файл на SD-карте:\n"
@@ -141,7 +176,9 @@ jobs:
               "4. Оставьте свои books/, заметки, saved_pages.cfg, options.cfg и остальные пользовательские файлы на месте.\n"
               "   Пакет содержит только новый NRO и документацию.\n\n"
               "ПРОВЕРКА НА КОНСОЛИ\n"
-              "Откройте проблемный CBR, проверьте страницы после обложки, последнюю страницу и переход назад.\n"
+              "Проверьте обложку «Хранителей», откройте комикс, перелистайте страницы и вернитесь в библиотеку.\n"
+              "Проверьте сборник, поиск по русскому названию, продолжение чтения и следующий выпуск.\n"
+              "Энергосбережение включено по умолчанию; настройки доступны в меню библиотеки.\n"
               "Затем проверьте один комикс, который открывался раньше.\n"
               "Компиляция и проверки файла NRO выполнены; запуск на настоящей Switch ещё требует подтверждения.\n"
               "Если ошибка повторится, сохраните новый log.txt и укажите номер комикса и страницы.\n\n"
@@ -173,10 +210,21 @@ jobs:
               "nro_sha256": hashlib.sha256(nro.read_bytes()).hexdigest(),
               "host_regression_report": "backend-tests.json",
               "host_regression_report_sha256": hashlib.sha256(tests_path.read_bytes()).hexdigest(),
-              "runtime_regression_reports": ["startup-tests.txt", "header-oom-tests.txt", "logging-tests.json"],
-              "validated": ["NRO header and asset bounds", "NACP title and version", "original icon bytes", "Russian UI literals", "RARFIX2 build marker"],
+              "runtime_regression_reports": ["startup-tests.txt", "header-oom-tests.txt", "logging-tests.json", "jpeg-tests.json", "jpeg-isolation.json", "library-tests.json", "reader-view-tests.txt", "power-tests.json", "library-ui-tests.json"],
+              "validated": ["NRO header and asset bounds", "NACP title and version", "original icon bytes", "Russian UI literals", "RARFIX2, COVERFIX1 and RU3 build markers", "separate linked JPEG ABIs"],
               "tested_on_nintendo_switch": False,
           }
+          assert json.loads(output.joinpath("jpeg-tests.json").read_text())["status"] == "passed"
+          for report_name in ["library-tests.json", "power-tests.json"]:
+              assert json.loads(output.joinpath(report_name).read_text())["ok"], report_name
+          provenance["jpeg_isolation"] = json.loads(output.joinpath("jpeg-isolation.json").read_text())
+          assert provenance["jpeg_isolation"]["linked_elf"]["ok"], "Final linked JPEG ABI check is missing"
+          library_tests = json.loads(output.joinpath("library-tests.json").read_text())
+          assert library_tests["source_sha256"] == hashlib.sha256(Path("wookreader-src/source/menus/book/WookLibrary.cpp").read_bytes()).hexdigest()
+          library_ui = json.loads(output.joinpath("library-ui-tests.json").read_text())
+          assert library_ui["passed"], "Library input/render replay failed"
+          assert library_ui["state_sha256"] == library_tests["source_sha256"]
+          assert library_ui["chooser_sha256"] == hashlib.sha256(Path("wookreader-ui-test/source/menus/book-chooser/MenuChooser.cpp").read_bytes()).hexdigest()
           unrar_info = Path("wookreader-src/unrar-build.json")
           provenance["unrar"] = json.loads(unrar_info.read_text(encoding="utf-8"))
           unrar_license = Path("wookreader-src/UNRAR-LICENSE.txt")
@@ -193,12 +241,21 @@ jobs:
       - name: Upload replacement package
         uses: actions/upload-artifact@v4
         with:
-          name: WookReader_RU2_RAR2_Switch
+          name: WookReader_RU3_Switch
           path: output/
           if-no-files-found: error
       - name: Upload NRO separately
         uses: actions/upload-artifact@v4
         with:
-          name: WookReader_RU2_RAR2_NRO
+          name: WookReader_RU3_NRO
           path: output/switch/WookReader/WookReader.nro
+          if-no-files-found: error
+      - name: Upload linked executable and map for verification
+        uses: actions/upload-artifact@v4
+        with:
+          name: WookReader_RU3_Debug
+          path: |
+            wookreader-src/WookReader.elf
+            wookreader-src/build/WookReader.map
+            wookreader-src/jpeg-symbols.map
           if-no-files-found: error

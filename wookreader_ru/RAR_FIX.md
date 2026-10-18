@@ -2,6 +2,9 @@
 
 Build identity: `0.7.0-RU2-rar2`.
 
+This describes the retained RARFIX2 baseline. The current
+[RU3 build](RU3.md) adds cover, library, reader and power changes on top of it.
+
 ## Confirmed failure and scope
 
 The old reader enumerated RAR4 member headers with its own seek-based parser,
