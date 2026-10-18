@@ -163,17 +163,88 @@ def patch_portability(source: Path) -> list[str]:
         "#elif defined(_APPLE) || defined(WOOK_UNRAR_UTF8)", count=2,
     )
 
+    # Horizon has no Unix user/group database or ownership restoration. Keep
+    # those functions out of the Switch object. If a future caller requests
+    # owner restoration, report unsupported rather than pretending it worked.
+    # WookReader's RAR_TEST operations never request this filesystem feature.
+    replace_exact(
+        source / "extinfo.cpp", '#include "uowners.cpp"',
+        '#ifndef __SWITCH__\n#include "uowners.cpp"\n#endif',
+    )
+    replace_exact(
+        source / "extinfo.cpp",
+        "    ExtractUnixOwner30(Arc,Name.c_str());",
+        """  {
+#ifdef __SWITCH__
+    Cmd->DllError=ERAR_UNKNOWN_FORMAT;
+    ErrHandler.Exit(RARX_FATAL);
+#else
+    ExtractUnixOwner30(Arc,Name.c_str());
+#endif
+  }""",
+    )
+    replace_exact(
+        source / "extinfo.cpp", "     SetUnixOwner(Arc,Name);",
+        """   {
+#ifdef __SWITCH__
+     Cmd->DllError=ERAR_UNKNOWN_FORMAT;
+     ErrHandler.Exit(RARX_FATAL);
+#else
+     SetUnixOwner(Arc,Name);
+#endif
+   }""",
+    )
+
+    # Only update-mode opens use flock upstream. Normal read-only archive opens
+    # are unaffected. Reject an exclusive update request on Switch, where that
+    # locking primitive is unavailable, instead of silently dropping its lock.
+    replace_exact(
+        source / "file.cpp", "#ifdef LOCK_EX",
+        "#if defined(LOCK_EX) && !defined(__SWITCH__)",
+    )
+    replace_exact(
+        source / "file.cpp",
+        "\n#endif\n  if (handle==-1)\n    hNewFile=FILE_BAD_HANDLE;",
+        """
+#elif defined(__SWITCH__)
+  if (!OpenShared && UpdateMode && handle>=0)
+  {
+    close(handle);
+    errno=ENOTSUP;
+    return false;
+  }
+#endif
+  if (handle==-1)
+    hNewFile=FILE_BAD_HANDLE;""",
+    )
+
+    # ConvertAttributes needs a mask only to translate foreign mode bits into
+    # its in-memory header. There is no process umask on Horizon. Use the
+    # documented conventional 022 mask for this translation without changing
+    # any filesystem permissions; native Unix archive attributes stay intact.
+    replace_exact(
+        source / "arcread.cpp", "  static mode_t mask = (mode_t) -1;",
+        "#ifdef __SWITCH__\n  const mode_t mask = 022;\n#else\n  static mode_t mask = (mode_t) -1;",
+    )
+    replace_exact(
+        source / "arcread.cpp",
+        "    umask(mask);\n  }\n\n  switch(FileHead.HSType)",
+        "    umask(mask);\n  }\n#endif\n\n  switch(FileHead.HSType)",
+    )
+
     license_text = (source / "license.txt").read_text(encoding="utf-8")
     paragraph = license_text.split("   2. ", 1)[1].split("   3. ", 1)[0].rstrip()
     license_comment = (
         "/* WookReader: platform integration adaptations only.\n"
         + paragraph + "\n*/\n"
     )
-    for name in ("os.hpp", "unicode.cpp"):
+    for name in ("os.hpp", "unicode.cpp", "extinfo.cpp", "file.cpp", "arcread.cpp"):
         path = source / name
         path.write_text(license_comment + path.read_text(encoding="utf-8"), encoding="utf-8")
     return ["switch-software-cpu-detection", "switch-stat-time-portability",
-            "switch-compiler-endianness", "wookreader-utf8-paths"]
+            "switch-compiler-endianness", "wookreader-utf8-paths",
+            "switch-owner-restore-unsupported", "switch-exclusive-update-unsupported",
+            "switch-deterministic-attribute-mask"]
 
 
 def run(command: list[str], **kwargs) -> subprocess.CompletedProcess:

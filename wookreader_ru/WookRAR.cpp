@@ -12,8 +12,11 @@
 #include "wookrar/dll.hpp"
 
 #ifdef __SWITCH__
+// These individual libnx headers need the C linkage used by the library.
+extern "C" {
 #include <switch/kernel/mutex.h>
 #include <switch/kernel/svc.h>
+}
 #else
 #include <chrono>
 #include <mutex>
