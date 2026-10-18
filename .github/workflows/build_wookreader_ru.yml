@@ -1,4 +1,4 @@
-name: Build WookReader Russian (Large Library Fix)
+name: Build WookReader Russian (RAR Fix)
 on:
   push:
     branches: [wookreader-ru-library-fix]
@@ -8,39 +8,67 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+env:
+  WOOK_VERSION: 0.7.0-RU2-rar1
+  WOOK_UPSTREAM_SHA: 9266efb05fe64af7205007f9e3260b2eb9ab0a3e
+  WOOK_BUILD_IMAGE: devkitpro/devkita64@sha256:1fc388c3a0d34bd2045a6dadcb1020e069d5f876a187fd705de14b4440c00282
 jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     container:
-      image: devkitpro/devkita64:latest
+      image: devkitpro/devkita64@sha256:1fc388c3a0d34bd2045a6dadcb1020e069d5f876a187fd705de14b4440c00282
     steps:
       - name: Checkout Russian patch
         uses: actions/checkout@v4
       - name: Install host dependencies
         run: |
           apt-get update
-          apt-get install -y libfreetype6-dev curl unzip
-      - name: Clone original WookReader sources
+          apt-get install -y libfreetype6-dev curl unzip g++
+      - name: Clone pinned original WookReader sources
+        shell: bash
         run: |
-          git clone --depth 1 --recurse-submodules https://github.com/exorevan/WookReader.git wookreader-src
-      - name: Apply Russian translations and UTF-8 support
+          git init wookreader-src
+          git -C wookreader-src remote add origin https://github.com/exorevan/WookReader.git
+          git -C wookreader-src fetch --depth 1 origin "$WOOK_UPSTREAM_SHA"
+          git -C wookreader-src checkout --detach FETCH_HEAD
+          git -C wookreader-src submodule update --init --recursive --depth 1
+          test "$(git -C wookreader-src rev-parse HEAD)" = "$WOOK_UPSTREAM_SHA"
+      - name: Apply Russian UI, library fixes and RAR reader
         run: |
+          python3 -m py_compile wookreader_ru/apply_ru.py wookreader_ru/optimize.py wookreader_ru/fix_rar.py wookreader_ru/build_unrar.py
           python3 wookreader_ru/apply_ru.py wookreader-src
           python3 wookreader_ru/optimize.py wookreader-src
-          python3 -m py_compile wookreader_ru/optimize.py
-      - name: Identify translated build as 0.7.0-RU
+          python3 wookreader_ru/fix_rar.py wookreader-src
+      - name: Identify translated RAR fix build
         run: |
           python3 - <<'PY'
+          import os
           from pathlib import Path
+          version = os.environ["WOOK_VERSION"]
+          assert len(version.encode("utf-8")) < 16, "NACP version must fit with its terminator"
           p = Path("wookreader-src/Makefile")
-          s = p.read_text(encoding="utf-8")
-          s = s.replace("VERSION_MINOR := 6", "VERSION_MINOR := 7")
-          s = s.replace("VERSION_MICRO := 7", "VERSION_MICRO := 0")
-          s = s.replace("APP_TITLE   := WookReader", "APP_TITLE   := WookReader RU")
-          s = s.replace("APP_VERSION := ${VERSION_MAJOR}.${VERSION_MINOR}.${VERSION_MICRO}-sigma", "APP_VERSION := 0.7.0-RU2")
-          p.write_text(s, encoding="utf-8")
+          source = p.read_text(encoding="utf-8")
+          replacements = {
+              "VERSION_MINOR := 6": "VERSION_MINOR := 7",
+              "VERSION_MICRO := 7": "VERSION_MICRO := 0",
+              "APP_TITLE   := WookReader": "APP_TITLE   := WookReader RU",
+              "APP_VERSION := ${VERSION_MAJOR}.${VERSION_MINOR}.${VERSION_MICRO}-sigma": "APP_VERSION := " + version,
+          }
+          for old, new in replacements.items():
+              assert source.count(old) == 1, "Unexpected upstream identity: " + old
+              source = source.replace(old, new, 1)
+          p.write_text(source, encoding="utf-8")
           PY
+      - name: Build pinned UnRAR for Switch
+        shell: bash
+        run: |
+          export DEVKITPRO=/opt/devkitpro
+          export DEVKITA64=$DEVKITPRO/devkitA64
+          export LIBNX=$DEVKITPRO/libnx
+          export PORTLIBS=$DEVKITPRO/portlibs/switch
+          export PATH=$DEVKITPRO/devkitA64/bin:$DEVKITPRO/tools/bin:$PATH
+          python3 wookreader_ru/build_unrar.py wookreader-src
       - name: Build MuPDF and Switch executable
         shell: bash
         run: |
@@ -54,65 +82,100 @@ jobs:
           make -f Makefile.mupdf -j2
           make -j2
           test -s WookReader.nro
-      - name: Create Atmosphere / Homebrew ZIP
+      - name: Validate NRO, Russian UI and unchanged icon
+        run: |
+          python3 - <<'PY'
+          import os
+          import struct
+          from pathlib import Path
+          data = Path("wookreader-src/WookReader.nro").read_bytes()
+          assert len(data) > 1000000 and data[16:20] == b"NRO0", "Invalid NRO header"
+          asset_start = struct.unpack_from("<I", data, 0x18)[0]
+          assert data[asset_start:asset_start + 4] == b"ASET", "Missing NRO assets"
+          icon_offset, icon_size, nacp_offset, nacp_size, romfs_offset, romfs_size = struct.unpack_from("<6Q", data, asset_start + 8)
+          for offset, size in [(icon_offset, icon_size), (nacp_offset, nacp_size), (romfs_offset, romfs_size)]:
+              assert size > 0 and asset_start + offset + size <= len(data), "Invalid NRO asset bounds"
+          icon = data[asset_start + icon_offset:asset_start + icon_offset + icon_size]
+          assert icon == Path("wookreader-src/icon.jpg").read_bytes(), "Upstream icon was changed"
+          nacp = data[asset_start + nacp_offset:asset_start + nacp_offset + nacp_size]
+          assert nacp[:0x200].split(b"\0", 1)[0] == b"WookReader RU", "Unexpected NACP title"
+          assert nacp[0x3060:0x3070].split(b"\0", 1)[0].decode() == os.environ["WOOK_VERSION"], "Unexpected NACP version"
+          for literal in ["Папка пуста", "Изменить заметку", "Ошибка загрузки страницы."]:
+              assert literal.encode("utf-8") in data, "Russian UI literal missing: " + literal
+          print("NRO validated:", len(data), "bytes; Russian UI, original icon and version", os.environ["WOOK_VERSION"])
+          PY
+      - name: Package replacement NRO with checksum and provenance
         shell: bash
         run: |
           mkdir -p output/switch/WookReader
           cp wookreader-src/WookReader.nro output/switch/WookReader/WookReader.nro
           python3 - <<'PY'
+          import hashlib
+          import json
+          import os
+          import subprocess
           from pathlib import Path
-          Path("output/README_RU.txt").write_text(
-              "WOOKREADER RU 0.7.0-RU2 — УЛУЧШЕННАЯ ВЕРСИЯ\n\n"
-              "1. Скопируйте папку switch из ZIP в корень SD через DBI.\n"
-              "2. Сохраните свои books/, заметки, saved_pages.cfg и options.cfg.\n"
-              "3. Старые списки страниц автоматически обновятся при первом открытии.\n"
-              "4. Для иконки HOME откройте Sphaira из Homebrew Menu в полном режиме (удерживать R при запуске игры).\n"
-              "5. Выберите WookReader RU, нажмите X и выберите Install Forwarder.\n"
-              "6. На HOME появится отдельная иконка; NRO должен оставаться по пути /switch/WookReader/WookReader.nro.\n"
-              "Если Sphaira нет, скачайте: https://github.com/NaGaa95/sphaira/releases/tag/1.0.8\n\n"
-              "Тест компиляции пройден; работа на настоящей Switch подлежит подтверждению.\n",
+          version = os.environ["WOOK_VERSION"]
+          output = Path("output")
+          output.joinpath("README_RU.txt").write_text(
+              "WOOKREADER RU " + version + " — ОБНОВЛЁННОЕ ЧТЕНИЕ RAR/CBR\n\n"
+              "УСТАНОВКА С СОХРАНЕНИЕМ ВАШЕЙ ИКОНКИ WOOK\n"
+              "1. Полностью закройте WOOK. Сохраните резервную копию прежнего WookReader.nro.\n"
+              "2. Замените только файл на SD-карте:\n"
+              "   /switch/WookReader/WookReader.nro\n"
+              "   Если копируете папку switch из этого пакета, объедините папки и подтвердите замену NRO.\n"
+              "3. Откройте приложение через уже установленную иконку WOOK.\n"
+              "   Переустановка иконки, NSP или Sphaira не нужна.\n"
+              "4. Оставьте свои books/, заметки, saved_pages.cfg, options.cfg и остальные пользовательские файлы на месте.\n"
+              "   Пакет содержит только новый NRO и документацию.\n\n"
+              "ПРОВЕРКА НА КОНСОЛИ\n"
+              "Откройте проблемный CBR, проверьте страницы после обложки, последнюю страницу и переход назад.\n"
+              "Затем проверьте один комикс, который открывался раньше.\n"
+              "Компиляция и проверки файла NRO выполнены; запуск на настоящей Switch ещё требует подтверждения.\n"
+              "Если ошибка повторится, сохраните новый log.txt и укажите номер комикса и страницы.\n\n"
+              "Возврат к прежней сборке: закройте WOOK и верните резервный NRO по тому же пути.\n"
+              "Контрольные суммы файлов находятся в SHA256SUMS.txt; данные сборки — в provenance.json.\n",
               encoding="utf-8"
           )
+          nro = output / "switch/WookReader/WookReader.nro"
+          def capture(*args):
+              return subprocess.check_output(args, text=True).strip()
+          provenance = {
+              "version": version,
+              "patch_repository": "https://github.com/" + os.environ["GITHUB_REPOSITORY"],
+              "patch_commit": os.environ["GITHUB_SHA"],
+              "upstream_repository": "https://github.com/exorevan/WookReader",
+              "upstream_commit": capture("git", "-C", "wookreader-src", "rev-parse", "HEAD"),
+              "container_image": os.environ["WOOK_BUILD_IMAGE"],
+              "compiler": capture("/opt/devkitpro/devkitA64/bin/aarch64-none-elf-g++", "--version").splitlines()[0],
+              "workflow_run": "https://github.com/" + os.environ["GITHUB_REPOSITORY"] + "/actions/runs/" + os.environ["GITHUB_RUN_ID"],
+              "nro_path_on_sd": "/switch/WookReader/WookReader.nro",
+              "nro_size": nro.stat().st_size,
+              "nro_sha256": hashlib.sha256(nro.read_bytes()).hexdigest(),
+              "validated": ["NRO header and asset bounds", "NACP title and version", "original icon bytes", "Russian UI literals"],
+              "tested_on_nintendo_switch": False,
+          }
+          unrar_info = Path("wookreader-src/unrar-build.json")
+          provenance["unrar"] = json.loads(unrar_info.read_text(encoding="utf-8"))
+          unrar_license = Path("wookreader-src/UNRAR-LICENSE.txt")
+          output.joinpath("LICENSE_UNRAR.txt").write_bytes(unrar_license.read_bytes())
+          output.joinpath("provenance.json").write_text(json.dumps(provenance, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+          sums = []
+          for path in sorted(output.rglob("*")):
+              if path.is_file() and path.name != "SHA256SUMS.txt":
+                  sums.append(hashlib.sha256(path.read_bytes()).hexdigest() + "  " + path.relative_to(output).as_posix())
+          output.joinpath("SHA256SUMS.txt").write_text("\n".join(sums) + "\n", encoding="utf-8")
+          print("Ready:", nro, nro.stat().st_size, "bytes; SHA-256", provenance["nro_sha256"])
           PY
-          python3 - <<'PY'
-          import zipfile
-          from pathlib import Path
-          out=Path("WookReader_RU_LibraryFix_TEST.zip")
-          with zipfile.ZipFile(out,"w",zipfile.ZIP_DEFLATED) as z:
-              for p in Path("output").rglob("*"):
-                  if p.is_file(): z.write(p,p.relative_to("output").as_posix())
-          print("ZIP ready:",out,out.stat().st_size)
-          PY
-      - name: Bundle official Sphaira 1.0.8 (HOME Menu shortcut tool)
-        shell: bash
-        run: |
-          mkdir -p /tmp/sphaira_package output/switch
-          if curl -fLsS --retry 3 -o /tmp/sphaira.zip https://github.com/NaGaa95/sphaira/releases/download/1.0.8/sphaira.zip; then
-            unzip -q /tmp/sphaira.zip -d /tmp/sphaira_package
-            SFILE="$(find /tmp/sphaira_package -type f -name sphaira.nro -print -quit)"
-            if [ -n "$SFILE" ]; then
-              cp "$SFILE" output/switch/sphaira.nro
-              echo "Bundled official Sphaira at switch/sphaira.nro"
-            else
-              echo "No sphaira.nro found in official archive"
-            fi
-          else
-            echo "Sphaira unavailable; see official download in README"
-          fi
-      - name: Validate Switch NRO binary
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          nro=Path("output/switch/WookReader/WookReader.nro")
-          assert nro.stat().st_size > 1000000
-          with nro.open("rb") as f:
-              f.seek(16)
-              assert f.read(4) == b"NRO0"
-          print("Valid WookReader NRO",nro.stat().st_size)
-          PY
-      - name: Upload ready-to-copy package
+      - name: Upload replacement package
         uses: actions/upload-artifact@v4
         with:
-          name: WookReader_RU2_Switch_READY
+          name: WookReader_RU2_RAR1_Switch
           path: output/
+          if-no-files-found: error
+      - name: Upload NRO separately
+        uses: actions/upload-artifact@v4
+        with:
+          name: WookReader_RU2_RAR1_NRO
+          path: output/switch/WookReader/WookReader.nro
           if-no-files-found: error
